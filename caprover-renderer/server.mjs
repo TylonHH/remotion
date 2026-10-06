@@ -1,0 +1,10 @@
+import express from "express";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import {renderMedia,selectComposition} from "@remotion/renderer";
+const app=express(),port=Number(process.env.PORT||3000),outDir=process.env.OUTPUT_DIR||"/data/renders",apiKey=process.env.API_KEY||"",jobs=new Map();
+await fs.mkdir(outDir,{recursive:true}); app.use(express.json({limit:"2mb"})); app.get("/health",(q,s)=>s.json({ok:true,service:"remotion-renderer"})); app.use("/renders",express.static(outDir));
+const auth=(q,s,n)=>{if(!apiKey)return n();const v=(q.headers.authorization||"").replace(/^Bearer\s+/i,"");if(v!==apiKey)return s.status(401).json({error:"Unauthorized"});n();};
+app.post("/render",auth,async(q,s)=>{const {serveUrl,compositionId,inputProps={},codec="h264",concurrency}=q.body||{};if(!serveUrl||!compositionId)return s.status(400).json({error:"serveUrl and compositionId are required"});const id=crypto.randomUUID(),filename=id+".mp4",outputLocation=path.join(outDir,filename);jobs.set(id,{id,status:"queued",createdAt:new Date().toISOString()});s.status(202).json({id,status:"queued",statusUrl:"/jobs/"+id,outputUrl:"/renders/"+filename});(async()=>{try{jobs.set(id,{...jobs.get(id),status:"rendering",startedAt:new Date().toISOString()});const composition=await selectComposition({serveUrl,id:compositionId,inputProps});await renderMedia({serveUrl,composition,codec,inputProps,outputLocation,...(concurrency?{concurrency}:{}),onProgress:({progress})=>{const j=jobs.get(id);if(j)jobs.set(id,{...j,progress});}});jobs.set(id,{...jobs.get(id),status:"done",progress:1,finishedAt:new Date().toISOString(),outputUrl:"/renders/"+filename});}catch(e){jobs.set(id,{...jobs.get(id),status:"failed",finishedAt:new Date().toISOString(),error:e instanceof Error?e.message:String(e)});}})();});
+app.get("/jobs/:id",auth,(q,s)=>{const j=jobs.get(q.params.id);if(!j)return s.status(404).json({error:"Job not found"});s.json(j);});app.listen(port,"0.0.0.0",()=>console.log("Remotion renderer listening on :"+port));

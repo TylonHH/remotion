@@ -1,0 +1,1 @@
+{"name":"remotion-caprover-renderer","version":"1.0.0","private":true,"type":"module","scripts":{"start":"node server.mjs"},"dependencies":{"@remotion/renderer":"4.0.531","express":"5.1.0"}}
